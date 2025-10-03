@@ -16,10 +16,17 @@ import os
 
 def create_app():
     """Função de fábrica para criar a aplicação Flask."""
-    app = Flask(__name__)
+    
+    # Força caminhos absolutos para templates e static
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    app = Flask(
+        __name__,
+        template_folder=os.path.join(base_dir, 'templates'),
+        static_folder=os.path.join(base_dir, 'static')
+    )
     
     # Carrega configurações
-    app.config.from_pyfile('config.py')
+    app.config.from_pyfile(os.path.join(base_dir, 'config.py'))
     
     # Configuração para sessões
     app.secret_key = os.environ.get('SECRET_KEY', 'entrelinhas_secret_key_dev')
@@ -52,4 +59,3 @@ app = create_app()
 
 if __name__ == '__main__':
     app.run(debug=True)
-
