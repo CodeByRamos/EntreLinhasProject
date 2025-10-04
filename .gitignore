@@ -1,0 +1,5 @@
+__pycache__/
+entrelinhas.db
+*.pyc
+# Ignorar a pasta do ambiente virtual
+venv/
