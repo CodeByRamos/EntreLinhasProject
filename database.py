@@ -174,16 +174,16 @@ def get_comments(post_id, include_hidden=False):
     
     if include_hidden:
         comments = conn.execute('''
-            SELECT id, post_id, mensagem, data_comentario 
+            SELECT id, post_id, comment_text, data_comentario, visivel 
             FROM comments 
             WHERE post_id = ? 
             ORDER BY id ASC
         ''', (post_id,)).fetchall()
     else:
         comments = conn.execute('''
-            SELECT id, post_id, mensagem, data_comentario 
+            SELECT id, post_id, comment_text, data_comentario, visivel 
             FROM comments 
-            WHERE post_id = ? 
+            WHERE post_id = ? AND visivel = 1 
             ORDER BY id ASC
         ''', (post_id,)).fetchall()
     
@@ -241,15 +241,15 @@ def get_comment_by_id(comment_id, include_hidden=False):
     
     if include_hidden:
         comment = conn.execute('''
-            SELECT id, post_id, mensagem, data_comentario 
+            SELECT id, post_id, comment_text, data_comentario, visivel 
             FROM comments 
             WHERE id = ?
         ''', (comment_id,)).fetchone()
     else:
         comment = conn.execute('''
-            SELECT id, post_id, mensagem, data_comentario 
+            SELECT id, post_id, comment_text, data_comentario, visivel 
             FROM comments 
-            WHERE id = ?
+            WHERE id = ? AND visivel = 1
         ''', (comment_id,)).fetchone()
     
     conn.close()
@@ -261,22 +261,15 @@ def create_comment(post_id, comment_text):
     data_comentario = datetime.now().strftime("%d/%m/%Y %H:%M")
     
     cursor = conn.cursor()
-    try:
-        cursor.execute('''
-            INSERT INTO comments (post_id, mensagem, data_comentario)
-            VALUES (?, ?, ?)
-        ''', (post_id, comment_text, data_comentario))
-        
-        comment_id = cursor.lastrowid
-        conn.commit()
-        print(f"Comentário criado com ID {comment_id} para o post {post_id}")
-        return comment_id
-    except sqlite3.Error as e:
-        conn.rollback()
-        print(f"Erro ao criar comentário: {e}")
-        return None
-    finally:
-        conn.close()
+    cursor.execute('''
+        INSERT INTO comments (post_id, comment_text, data_comentario)
+        VALUES (?, ?, ?)
+    ''', (post_id, comment_text, data_comentario))
+    
+    comment_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return comment_id
 
 def update_comment_visibility(comment_id, visibility):
     """Atualiza a visibilidade de um comentário."""
@@ -307,44 +300,28 @@ def get_hidden_comment_count():
 
 # Funções para reações
 
-def add_reaction(post_id, reaction_type, user_id='anonymous'):
+def add_reaction(post_id, reaction_type):
     """Adiciona uma reação a um post e atualiza a contagem."""
     conn = get_db_connection()
+    data_reacao = datetime.now().strftime("%d/%m/%Y %H:%M")
     
     cursor = conn.cursor()
-    try:
-        # Primeiro verifica se o usuário já reagiu com este tipo
-        existing_user_reaction = cursor.execute('''
-            SELECT id FROM reactions 
-            WHERE post_id = ? AND reaction_type = ? AND user_id = ?
-        ''', (post_id, reaction_type, user_id)).fetchone()
-        
-        if existing_user_reaction:
-            # Usuário já reagiu, não adiciona novamente
-            conn.close()
-            return False
-        
-        # Registra a reação individual
-        cursor.execute('''
-            INSERT INTO reactions (post_id, reaction_type, user_id)
-            VALUES (?, ?, ?)
-        ''', (post_id, reaction_type, user_id))
-        
-        # Atualiza ou cria a contagem de reações usando INSERT OR REPLACE
-        cursor.execute('''
-            INSERT OR REPLACE INTO reaction_counts (post_id, reaction_type, count)
-            VALUES (?, ?, COALESCE((SELECT count FROM reaction_counts WHERE post_id = ? AND reaction_type = ?), 0) + 1)
-        ''', (post_id, reaction_type, post_id, reaction_type))
-        
-        conn.commit()
-        print(f"Reação '{reaction_type}' adicionada e contagem atualizada para o post {post_id}.")
-        return True
-    except sqlite3.Error as e:
-        conn.rollback()
-        print(f"Erro ao adicionar reação ou atualizar contagem: {e}")
-        return False
-    finally:
-        conn.close()
+    # Registra a reação individual
+    cursor.execute('''
+        INSERT INTO reactions (post_id, reaction_type, data_reacao)
+        VALUES (?, ?, ?)
+    ''', (post_id, reaction_type, data_reacao))
+    
+    # Atualiza a contagem de reações
+    cursor.execute('''
+        INSERT INTO reaction_counts (post_id, reaction_type, count)
+        VALUES (?, ?, 1)
+        ON CONFLICT(post_id, reaction_type) DO UPDATE SET
+        count = count + 1
+    ''', (post_id, reaction_type))
+    
+    conn.commit()
+    conn.close()
 
 def get_reaction_counts(post_id):
     """Retorna a contagem de cada tipo de reação para um post."""
@@ -1101,113 +1078,4 @@ def get_user_stats(user_id):
 if __name__ == "__main__":
     init_db()
     print("Banco de dados inicializado com sucesso!")
-
-
-def remove_report(post_id, profile_id=None):
-    """Remove um report de um post."""
-    conn = get_db_connection()
-    
-    try:
-        # Verificar se existe um report para remover
-        if profile_id:
-            existing_report = conn.execute('''
-                SELECT id FROM reports 
-                WHERE post_id = ? AND profile_id = ?
-            ''', (post_id, profile_id)).fetchone()
-            
-            if not existing_report:
-                conn.close()
-                return False, "Você não reportou este desabafo."
-            
-            # Remover o report específico do usuário
-            conn.execute('''
-                DELETE FROM reports 
-                WHERE post_id = ? AND profile_id = ?
-            ''', (post_id, profile_id))
-        else:
-            # Se não há profile_id, remove todos os reports do post (admin)
-            conn.execute('''
-                DELETE FROM reports WHERE post_id = ?
-            ''', (post_id,))
-        
-        # Verificar quantos reports o post ainda tem
-        report_count = conn.execute('''
-            SELECT COUNT(*) FROM reports WHERE post_id = ?
-        ''', (post_id,)).fetchone()[0]
-        
-        # Se ficar com menos de 5 reports, tornar o post visível novamente
-        if report_count < 5:
-            conn.execute('''
-                UPDATE posts SET visivel = 1 WHERE id = ?
-            ''', (post_id,))
-        
-        conn.commit()
-        conn.close()
-        return True, "Report removido com sucesso."
-        
-    except sqlite3.Error as e:
-        conn.rollback()
-        conn.close()
-        print(f"Erro ao remover report: {e}")
-        return False, "Erro ao remover report."
-
-
-def get_user_reaction(post_id, reaction_type, user_id):
-    """Verifica se um usuário já reagiu com um tipo específico a um post."""
-    conn = get_db_connection()
-    
-    reaction = conn.execute('''
-        SELECT id FROM reactions 
-        WHERE post_id = ? AND reaction_type = ? AND user_id = ?
-    ''', (post_id, reaction_type, user_id)).fetchone()
-    
-    conn.close()
-    return reaction
-
-def remove_reaction(post_id, reaction_type, user_id):
-    """Remove uma reação específica de um usuário e atualiza a contagem."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    try:
-        # Remove a reação individual
-        cursor.execute('''
-            DELETE FROM reactions 
-            WHERE post_id = ? AND reaction_type = ? AND user_id = ?
-        ''', (post_id, reaction_type, user_id))
-        
-        # Verifica se alguma linha foi afetada
-        if cursor.rowcount == 0:
-            conn.close()
-            return False
-        
-        # Atualiza a contagem de reações
-        current_count = cursor.execute('''
-            SELECT count FROM reaction_counts 
-            WHERE post_id = ? AND reaction_type = ?
-        ''', (post_id, reaction_type)).fetchone()
-        
-        if current_count and current_count[0] > 1:
-            # Decrementa a contagem
-            cursor.execute('''
-                UPDATE reaction_counts 
-                SET count = count - 1 
-                WHERE post_id = ? AND reaction_type = ?
-            ''', (post_id, reaction_type))
-        else:
-            # Remove a entrada se a contagem chegou a zero ou menos
-            cursor.execute('''
-                DELETE FROM reaction_counts 
-                WHERE post_id = ? AND reaction_type = ?
-            ''', (post_id, reaction_type))
-        
-        conn.commit()
-        print(f"Reação '{reaction_type}' removida e contagem atualizada para o post {post_id}.")
-        return True
-    except sqlite3.Error as e:
-        conn.rollback()
-        print(f"Erro ao remover reação ou atualizar contagem: {e}")
-        return False
-    finally:
-        conn.close()
 

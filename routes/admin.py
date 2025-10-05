@@ -138,3 +138,30 @@ def toggle_comment_visibility(comment_id):
     # Redirecionar de volta para a página anterior
     return redirect(request.referrer or url_for('admin.comments'))
 
+
+@admin.route('/comment-reports')
+@admin_required
+def comment_reports():
+    """Rota para gerenciar reports de comentários."""
+    try:
+        # Obter todos os reports de comentários (pendentes por padrão)
+        reports = db.get_comment_reports(resolved=0)
+        
+        return render_template('admin/comment_reports.html', reports=reports)
+    except Exception as e:
+        flash(f'Erro ao carregar reports de comentários: {str(e)}', 'error')
+        return redirect(url_for('admin.dashboard'))
+
+@admin.route('/reports')
+@admin_required
+def reports():
+    """Rota para gerenciar reports de posts."""
+    try:
+        # Obter todos os reports de posts (pendentes por padrão)
+        reports = db.get_reports(resolved=0)
+        
+        return render_template('admin/reports.html', reports=reports)
+    except Exception as e:
+        flash(f'Erro ao carregar reports: {str(e)}', 'error')
+        return redirect(url_for('admin.dashboard'))
+

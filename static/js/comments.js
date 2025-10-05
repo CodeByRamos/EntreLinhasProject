@@ -58,11 +58,6 @@ function loadComments(postId) {
  * @param {HTMLElement} textarea - Elemento textarea para limpar após envio
  */
 function submitComment(postId, commentText, textarea) {
-    // Desabilita o textarea durante o envio
-    textarea.disabled = true;
-    const originalPlaceholder = textarea.placeholder;
-    textarea.placeholder = 'Enviando comentário...';
-    
     fetch(`/api/comments/${postId}`, {
         method: 'POST',
         headers: {
@@ -70,17 +65,8 @@ function submitComment(postId, commentText, textarea) {
         },
         body: JSON.stringify({ text: commentText }),
     })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`Erro HTTP: ${response.status}`);
-            }
-            return response.json();
-        })
+        .then(response => response.json())
         .then(data => {
-            if (data.error) {
-                throw new Error(data.error);
-            }
-            
             if (data.comment) {
                 const container = document.querySelector(`.comments-container[data-post-id="${postId}"]`);
                 
@@ -99,22 +85,11 @@ function submitComment(postId, commentText, textarea) {
                 
                 // Scroll para o novo comentário
                 commentElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                
-                // Feedback visual de sucesso
-                commentElement.style.backgroundColor = '#dcfce7'; // verde claro
-                setTimeout(() => {
-                    commentElement.style.backgroundColor = '';
-                }, 2000);
             }
         })
         .catch(error => {
             console.error('Erro ao enviar comentário:', error);
-            alert(`Erro ao enviar comentário: ${error.message}`);
-        })
-        .finally(() => {
-            // Reabilita o textarea
-            textarea.disabled = false;
-            textarea.placeholder = originalPlaceholder;
+            alert('Erro ao enviar comentário. Tente novamente mais tarde.');
         });
 }
 
@@ -125,13 +100,33 @@ function submitComment(postId, commentText, textarea) {
  */
 function createCommentElement(comment) {
     const div = document.createElement('div');
-    div.className = 'comentario-container';
+    div.className = 'bg-gray-50 dark:bg-gray-750 p-4 rounded-lg';
     div.dataset.commentId = comment.id;
     
     div.innerHTML = `
-        <p class="text-gray-800 dark:text-gray-200 text-sm">${escapeHTML(comment.text)}</p>
-        <div class="mt-2 text-xs text-gray-500 dark:text-gray-400">${comment.date}</div>
+        <div class="flex justify-between items-start">
+            <div class="flex-grow">
+                <p class="text-gray-800 dark:text-gray-200 text-sm">${escapeHTML(comment.mensagem || comment.text)}</p>
+                <div class="mt-2 text-xs text-gray-500 dark:text-gray-400">${comment.data_comentario || comment.date}</div>
+            </div>
+            <button 
+                class="report-comment-button text-gray-400 hover:text-red-600 dark:hover:text-red-400 text-xs flex items-center transition duration-300 ml-2"
+                data-comment-id="${comment.id}"
+                title="Reportar este comentário"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M3 6a3 3 0 013-3h10a1 1 0 01.8 1.6L14.25 8l2.55 3.4A1 1 0 0116 13H6a1 1 0 00-1 1v3a1 1 0 11-2 0V6z" clip-rule="evenodd" />
+                </svg>
+                Reportar
+            </button>
+        </div>
     `;
+    
+    // Adiciona event listener para o botão de report
+    const reportButton = div.querySelector('.report-comment-button');
+    reportButton.addEventListener('click', function() {
+        reportComment(comment.id);
+    });
     
     return div;
 }
@@ -148,5 +143,43 @@ function escapeHTML(unsafe) {
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
+}
+
+
+
+/**
+ * Reporta um comentário
+ * @param {string} commentId - ID do comentário
+ */
+function reportComment(commentId) {
+    if (confirm('Tem certeza que deseja reportar este comentário?')) {
+        fetch(`/api/report_comment/${commentId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ reason: 'Conteúdo inadequado' }),
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Comentário reportado com sucesso. Nossa equipe irá analisar.');
+                    
+                    // Desabilita o botão de report para evitar múltiplos reports
+                    const reportButton = document.querySelector(`[data-comment-id="${commentId}"] .report-comment-button`);
+                    if (reportButton) {
+                        reportButton.disabled = true;
+                        reportButton.textContent = 'Reportado';
+                        reportButton.classList.add('opacity-50', 'cursor-not-allowed');
+                    }
+                } else {
+                    alert('Erro ao reportar comentário: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Erro ao reportar comentário:', error);
+                alert('Erro ao reportar comentário. Tente novamente mais tarde.');
+            });
+    }
 }
 

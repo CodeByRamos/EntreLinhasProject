@@ -64,6 +64,7 @@ def enviar():
         # Cria o post no banco de dados
         post_id = db.create_post(conteudo, categoria)
         
+        flash('Seu desabafo foi enviado com sucesso!')
         return redirect(url_for('posts.feed'))
     
     return redirect(url_for('posts.feed'))
